@@ -169,7 +169,6 @@ field_in_collection: '{field} ({collection})'
 reset_page_preferences: Resetuj Podešavanja Stranice
 hidden_field: Sakriveno Polje
 hidden_on_detail: Sakriveno u sekciji Detalji
-disabled_editing_value: Onemogući izmjenu vrijednosti
 key: Ključ
 alias: Alias
 bigInteger: Big Integer
@@ -843,6 +842,8 @@ inline: Linijski
 comment: Komentar
 live_preview:
   new_window: Otvori u Novom Prozoru
+mcp_prompts_collection_schema:
+  messages_role_user: Korisnik
 relational_triggers: Relacioni Okidači
 referential_action_field_label_m2o: Kod Brisanja {collection}...
 referential_action_field_label_o2m: Kod Poništenog odabira {collection}...

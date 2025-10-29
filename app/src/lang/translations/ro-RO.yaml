@@ -290,7 +290,6 @@ field_in_collection: '{field} ({collection})'
 reset_page_preferences: Resetează preferințele paginii
 hidden_field: Câmp ascuns
 hidden_on_detail: Ascuns în detalii
-disabled_editing_value: Dezactivează valoarea de editare
 key: Cheie
 alias: Alias
 bigInteger: Întreg mare
@@ -1260,6 +1259,8 @@ shares: Distribuiri
 unlimited_usage: Utilizare nelimitată
 no_shares: Nici o distribuire de afișat
 new_share: Distribuire nouă
+mcp_prompts_collection_schema:
+  messages_role_user: Utilizator
 expired: Expirat
 upcoming: Urmează
 share: Distribuie
@@ -1359,7 +1360,6 @@ translation_placeholder: Introduceți o traducere...
 value: Valoare
 view_project: Vezi proiect
 report_error: Raportare eroare
-start: Pornire
 table: Tabel
 list: Listă
 interfaces:
@@ -1821,6 +1821,7 @@ layouts:
   kanban:
     crop: Decupare
 both: Ambele
+start: Pornire
 panels:
   metric:
     name: Metric

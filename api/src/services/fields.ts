@@ -8,8 +8,18 @@ import { useEnv } from '@directus/env';
 import { ForbiddenError, InvalidPayloadError } from '@directus/errors';
 import type { Column, SchemaInspector } from '@directus/schema';
 import { createInspector } from '@directus/schema';
-import type { Accountability, Field, FieldMeta, RawField, SchemaOverview, Type } from '@directus/types';
-import { addFieldFlag, toArray } from '@directus/utils';
+import type {
+	AbstractServiceOptions,
+	Accountability,
+	ActionEventParams,
+	Field,
+	FieldMeta,
+	MutationOptions,
+	RawField,
+	SchemaOverview,
+	Type,
+} from '@directus/types';
+import { addFieldFlag, getRelations, toArray } from '@directus/utils';
 import type Keyv from 'keyv';
 import type { Knex } from 'knex';
 import { isEqual, isNil, merge } from 'lodash-es';
@@ -23,7 +33,6 @@ import emitter from '../emitter.js';
 import { fetchPermissions } from '../permissions/lib/fetch-permissions.js';
 import { fetchPolicies } from '../permissions/lib/fetch-policies.js';
 import { validateAccess } from '../permissions/modules/validate-access/validate-access.js';
-import type { AbstractServiceOptions, ActionEventParams, MutationOptions } from '../types/index.js';
 import getDefaultValue from '../utils/get-default-value.js';
 import { getSystemFieldRowsWithAuthProviders } from '../utils/get-field-system-rows.js';
 import getLocalType from '../utils/get-local-type.js';
@@ -37,9 +46,23 @@ import { getCollectionRelationList } from './fields/get-collection-relation-list
 import { ItemsService } from './items.js';
 import { PayloadService } from './payload.js';
 import { RelationsService } from './relations.js';
+import { isSystemField } from '@directus/system-data';
+import { z } from 'zod';
 
 const systemFieldRows = getSystemFieldRowsWithAuthProviders();
 const env = useEnv();
+
+export const systemFieldUpdateSchema = z
+	.object({
+		collection: z.string().optional(),
+		field: z.string().optional(),
+		schema: z
+			.object({
+				is_indexed: z.boolean().optional(),
+			})
+			.strict(),
+	})
+	.strict();
 
 export class FieldsService {
 	knex: Knex;
@@ -116,20 +139,21 @@ export class FieldsService {
 			);
 		}
 
-		const nonAuthorizedItemsService = new ItemsService('directus_fields', {
+		const nonAuthorizedItemsService = new ItemsService<FieldMeta, 'directus_fields'>('directus_fields', {
 			knex: this.knex,
 			schema: this.schema,
 		});
 
 		if (collection) {
-			fields = (await nonAuthorizedItemsService.readByQuery({
+			fields = await nonAuthorizedItemsService.readByQuery({
 				filter: { collection: { _eq: collection } },
 				limit: -1,
-			})) as FieldMeta[];
+			});
 
 			fields.push(...systemFieldRows.filter((fieldMeta) => fieldMeta.collection === collection));
 		} else {
-			fields = (await nonAuthorizedItemsService.readByQuery({ limit: -1 })) as FieldMeta[];
+			fields = await nonAuthorizedItemsService.readByQuery({ limit: -1 });
+
 			fields.push(...systemFieldRows);
 		}
 
@@ -199,7 +223,7 @@ export class FieldsService {
 
 		const knownCollections = Object.keys(this.schema.collections);
 
-		const result = [...columnsWithSystem, ...aliasFieldsAsField].filter((field) =>
+		let result = [...columnsWithSystem, ...aliasFieldsAsField].filter((field) =>
 			knownCollections.includes(field.collection),
 		);
 
@@ -214,12 +238,12 @@ export class FieldsService {
 							policies,
 							collections: [collection],
 							accountability: this.accountability,
-					  }
+						}
 					: {
 							action: 'read',
 							policies,
 							accountability: this.accountability,
-					  },
+						},
 				{ knex: this.knex, schema: this.schema },
 			);
 
@@ -239,7 +263,7 @@ export class FieldsService {
 				throw new ForbiddenError();
 			}
 
-			return result.filter((field) => {
+			result = result.filter((field) => {
 				if (field.collection in allowedFieldsInCollection === false) return false;
 				const allowedFields = allowedFieldsInCollection[field.collection]!;
 				if (allowedFields.has('*')) return true;
@@ -249,12 +273,6 @@ export class FieldsService {
 
 		// Update specific database type overrides
 		for (const field of result) {
-			if (field.meta?.special?.includes('cast-timestamp')) {
-				field.type = 'timestamp';
-			} else if (field.meta?.special?.includes('cast-datetime')) {
-				field.type = 'dateTime';
-			}
-
 			field.type = this.helpers.schema.processFieldType(field);
 		}
 
@@ -323,7 +341,7 @@ export class FieldsService {
 			? {
 					...column,
 					default_value: getDefaultValue(column, fieldInfo),
-			  }
+				}
 			: null;
 
 		const data = {
@@ -391,7 +409,7 @@ export class FieldsService {
 									schema: this.schema,
 									accountability: this.accountability,
 								},
-						  )
+							)
 						: field;
 
 				if (hookAdjustedField.type && ALIAS_TYPES.includes(hookAdjustedField.type) === false) {
@@ -457,7 +475,7 @@ export class FieldsService {
 			}
 
 			if (opts?.emitEvents !== false && nestedActionEvents.length > 0) {
-				const updatedSchema = await getSchema();
+				const updatedSchema = await getSchema({ database: this.knex });
 
 				for (const nestedActionEvent of nestedActionEvents) {
 					nestedActionEvent.context.schema = updatedSchema;
@@ -496,7 +514,7 @@ export class FieldsService {
 								schema: this.schema,
 								accountability: this.accountability,
 							},
-					  )
+						)
 					: field;
 
 			const record = field.meta
@@ -534,12 +552,13 @@ export class FieldsService {
 							});
 						});
 					} catch (err: any) {
-						throw await translateDatabaseError(err);
+						throw await translateDatabaseError(err, field);
 					}
 				}
 			}
 
-			if (hookAdjustedField.meta) {
+			// Only create/update a database record if this is not a system field
+			if (hookAdjustedField.meta && !isSystemField(collection, hookAdjustedField.field)) {
 				if (record) {
 					await this.itemsService.updateOne(
 						record.id,
@@ -597,7 +616,7 @@ export class FieldsService {
 			}
 
 			if (opts?.emitEvents !== false && nestedActionEvents.length > 0) {
-				const updatedSchema = await getSchema();
+				const updatedSchema = await getSchema({ database: this.knex });
 
 				for (const nestedActionEvent of nestedActionEvents) {
 					nestedActionEvent.context.schema = updatedSchema;
@@ -634,7 +653,7 @@ export class FieldsService {
 			}
 
 			if (opts?.emitEvents !== false && nestedActionEvents.length > 0) {
-				const updatedSchema = await getSchema();
+				const updatedSchema = await getSchema({ database: this.knex });
 
 				for (const nestedActionEvent of nestedActionEvents) {
 					nestedActionEvent.context.schema = updatedSchema;
@@ -669,12 +688,7 @@ export class FieldsService {
 			}
 
 			await transaction(this.knex, async (trx) => {
-				const relations = this.schema.relations.filter((relation) => {
-					return (
-						(relation.collection === collection && relation.field === field) ||
-						(relation.related_collection === collection && relation.meta?.one_field === field)
-					);
-				});
+				const relations = getRelations(this.schema.relations, collection, field);
 
 				const relationsService = new RelationsService({
 					knex: trx,
@@ -828,7 +842,7 @@ export class FieldsService {
 			}
 
 			if (opts?.emitEvents !== false && nestedActionEvents.length > 0) {
-				const updatedSchema = await getSchema();
+				const updatedSchema = await getSchema({ database: this.knex });
 
 				for (const nestedActionEvent of nestedActionEvents) {
 					nestedActionEvent.context.schema = updatedSchema;
@@ -856,14 +870,14 @@ export class FieldsService {
 				column = table.increments(field.field);
 			}
 		} else if (field.type === 'string') {
-			column = table.string(field.field, field.schema?.max_length ?? undefined);
+			column = table.string(field.field, field.schema?.max_length ?? existing?.max_length ?? undefined);
 		} else if (['float', 'decimal'].includes(field.type)) {
 			const type = field.type as 'float' | 'decimal';
 
 			column = table[type](
 				field.field,
-				field.schema?.numeric_precision ?? DEFAULT_NUMERIC_PRECISION,
-				field.schema?.numeric_scale ?? DEFAULT_NUMERIC_SCALE,
+				field.schema?.numeric_precision ?? existing?.numeric_precision ?? DEFAULT_NUMERIC_PRECISION,
+				field.schema?.numeric_scale ?? existing?.numeric_scale ?? DEFAULT_NUMERIC_SCALE,
 			);
 		} else if (field.type === 'csv') {
 			column = table.text(field.field);

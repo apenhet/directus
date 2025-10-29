@@ -16,7 +16,7 @@ const loading = ref(false);
 const name = ref<string | null>(null);
 const lastPage = ref<string | null>(null);
 
-fetchUser();
+const userPromise = fetchUser();
 
 onMounted(() => {
 	if ('continue' in router.currentRoute.value.query) {
@@ -49,6 +49,7 @@ async function fetchUser() {
 
 async function hydrateAndLogin() {
 	await hydrate();
+	await userPromise;
 	const redirectQuery = router.currentRoute.value.query.redirect as string;
 	router.push(redirectQuery || lastPage.value || `/content`);
 }
@@ -73,7 +74,7 @@ async function hydrateAndLogin() {
 
 <style scoped>
 .continue-as p {
-	margin-bottom: 32px;
+	margin-block-end: 32px;
 }
 
 .continue-as :deep(b) {

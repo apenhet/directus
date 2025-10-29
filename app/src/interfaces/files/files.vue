@@ -4,12 +4,14 @@ import { DisplayItem, RelationQueryMultiple, useRelationMultiple } from '@/compo
 import { useRelationPermissionsM2M } from '@/composables/use-relation-permissions';
 import { adjustFieldsForDisplays } from '@/utils/adjust-fields-for-displays';
 import { getAssetUrl } from '@/utils/get-asset-url';
+import { parseFilter } from '@/utils/parse-filter';
 import DrawerFiles from '@/views/private/components/drawer-files.vue';
 import DrawerItem from '@/views/private/components/drawer-item.vue';
-import { Filter } from '@directus/types';
-import { getFieldsFromTemplate } from '@directus/utils';
+import type { ContentVersion, Filter } from '@directus/types';
+import { deepMap, getFieldsFromTemplate } from '@directus/utils';
 import { clamp, get, isEmpty, isNil, set } from 'lodash';
-import { computed, ref, toRefs } from 'vue';
+import { render } from 'micromustache';
+import { computed, inject, ref, toRefs } from 'vue';
 import { useI18n } from 'vue-i18n';
 import Draggable from 'vuedraggable';
 
@@ -19,11 +21,13 @@ const props = withDefaults(
 		primaryKey: string | number;
 		collection: string;
 		field: string;
-		template?: string | null;
 		disabled?: boolean;
+		version: ContentVersion | null;
+		template?: string | null;
 		enableCreate?: boolean;
 		enableSelect?: boolean;
 		folder?: string;
+		filter?: Filter;
 		showNavigation?: boolean;
 		limit?: number;
 	}>(),
@@ -40,7 +44,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const { collection, field, primaryKey, limit } = toRefs(props);
+const { collection, field, primaryKey, limit, version } = toRefs(props);
 const { relationInfo } = useRelationM2M(collection, field);
 
 const value = computed({
@@ -105,7 +109,7 @@ const {
 	isItemSelected,
 	isLocalItem,
 	getItemEdits,
-} = useRelationMultiple(value, query, relationInfo, primaryKey);
+} = useRelationMultiple(value, query, relationInfo, primaryKey, version);
 
 const { createAllowed, updateAllowed, selectAllowed, deleteAllowed } = useRelationPermissionsM2M(relationInfo);
 
@@ -220,7 +224,7 @@ const downloadName = computed(() => {
 
 const downloadUrl = computed(() => {
 	if (relatedPrimaryKey.value === null || relationInfo.value?.relatedCollection.collection !== 'directus_files') return;
-	return getAssetUrl(String(relatedPrimaryKey.value), true);
+	return getAssetUrl(String(relatedPrimaryKey.value), { isDownload: true });
 });
 
 function getFilename(junctionRow: Record<string, any>) {
@@ -239,6 +243,8 @@ function getDownloadName(junctionRow: Record<string, any>) {
 
 	return junctionRow[junctionField]?.filename_download;
 }
+
+const values = inject('values', ref<Record<string, unknown>>({}));
 
 const customFilter = computed(() => {
 	if (!relationInfo.value) return;
@@ -268,6 +274,20 @@ const customFilter = computed(() => {
 	}
 
 	if (props.primaryKey !== '+') filter._and.push(selectFilter);
+
+	if (props.filter) {
+		filter._and.push(
+			parseFilter(
+				deepMap(props.filter, (val: unknown) => {
+					if (val && typeof val === 'string') {
+						return render(val, values.value);
+					}
+
+					return val;
+				}),
+			),
+		);
+	}
 
 	return filter;
 });
@@ -347,7 +367,7 @@ const allowDrag = computed(
 									<v-list-item
 										clickable
 										:download="getDownloadName(element)"
-										:href="getAssetUrl(getFilename(element), true)"
+										:href="getAssetUrl(getFilename(element), { isDownload: true })"
 									>
 										<v-list-item-icon><v-icon name="download" /></v-list-item-icon>
 										<v-list-item-content>{{ t('download_file') }}</v-list-item-content>

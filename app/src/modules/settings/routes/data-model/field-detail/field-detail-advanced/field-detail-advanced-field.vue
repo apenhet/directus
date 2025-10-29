@@ -1,9 +1,9 @@
 <script setup lang="ts">
+import { useUserStore } from '@/stores/user';
 import { storeToRefs } from 'pinia';
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { syncFieldDetailStoreProperty, useFieldDetailStore } from '../store';
-import { getCurrentLanguage } from '@/lang/get-current-language';
 
 const { t } = useI18n();
 const fieldDetailStore = useFieldDetailStore();
@@ -15,19 +15,24 @@ const translations = syncFieldDetailStoreProperty('field.meta.translations');
 const { loading, field } = storeToRefs(fieldDetailStore);
 const type = computed(() => field.value.type);
 const isGenerated = computed(() => field.value.schema?.is_generated);
+const userStore = useUserStore();
 </script>
 
 <template>
 	<div class="form">
 		<div v-if="!isGenerated" class="field half-left">
 			<div class="label type-label">{{ t('readonly') }}</div>
-			<v-checkbox v-model="readonly" :label="t('disabled_editing_value')" block />
+			<v-checkbox v-model="readonly" :label="t('readonly_field_label')" block />
 		</div>
 
 		<div v-if="!isGenerated" class="field half-right">
 			<div class="label type-label">{{ t('required') }}</div>
 			<v-checkbox v-model="required" :label="t('require_value_to_be_set')" block />
 		</div>
+
+		<v-notice v-if="readonly && required" type="warning" class="full no-margin">
+			{{ t('required_readonly_field_warning') }}
+		</v-notice>
 
 		<div class="field half-left">
 			<div class="label type-label">{{ t('hidden') }}</div>
@@ -66,7 +71,7 @@ const isGenerated = computed(() => field.value.schema?.is_generated);
 							},
 						},
 						schema: {
-							default_value: getCurrentLanguage(),
+							default_value: userStore.language,
 						},
 					},
 					{
@@ -94,7 +99,7 @@ const isGenerated = computed(() => field.value.schema?.is_generated);
 @use '@/styles/mixins';
 
 .type-title {
-	margin-bottom: 32px;
+	margin-block-end: 32px;
 }
 
 .form {
@@ -112,7 +117,7 @@ const isGenerated = computed(() => field.value.schema?.is_generated);
 	--v-icon-color: var(--theme--primary);
 }
 
-.v-notice {
-	margin-bottom: 36px;
+.v-notice:not(.no-margin) {
+	margin-block-end: 36px;
 }
 </style>

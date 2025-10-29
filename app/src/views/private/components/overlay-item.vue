@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import api from '@/api';
+import { type ApplyShortcut } from '@/components/v-dialog.vue';
 import { useEditsGuard } from '@/composables/use-edits-guard';
 import { usePermissions } from '@/composables/use-permissions';
+import { useShortcut } from '@/composables/use-shortcut';
 import { useTemplateData } from '@/composables/use-template-data';
 import { useNestedValidation } from '@/composables/use-nested-validation';
 import { useFieldsStore } from '@/stores/fields';
 import { useRelationsStore } from '@/stores/relations';
 import { getDefaultValuesFromFields } from '@/utils/get-default-values-from-fields';
+import { translateShortcut } from '@/utils/translate-shortcut';
 import { unexpectedError } from '@/utils/unexpected-error';
 import { validateItem } from '@/utils/validate-item';
 import { useCollection } from '@directus/composables';
@@ -14,10 +17,11 @@ import { isSystemCollection } from '@directus/system-data';
 import { Field, PrimaryKey, Relation } from '@directus/types';
 import { getEndpoint } from '@directus/utils';
 import { isEmpty, merge, set } from 'lodash';
-import { Ref, computed, ref, toRefs, watch } from 'vue';
+import { computed, ref, toRefs, watch, unref, type Ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import OverlayItemContent from './overlay-item-content.vue';
+import { useFlows } from '@/composables/use-flows';
 
 export interface OverlayItemProps {
 	overlay?: 'drawer' | 'modal' | 'popover';
@@ -36,6 +40,9 @@ export interface OverlayItemProps {
 	circularField?: string | null;
 	junctionFieldLocation?: string;
 	selectedFields?: string[] | null;
+	popoverProps?: Record<string, any>;
+	applyShortcut?: ApplyShortcut;
+	preventCancelWithEdits?: boolean;
 }
 
 export interface OverlayItemEmits {
@@ -50,6 +57,7 @@ const props = withDefaults(defineProps<OverlayItemProps>(), {
 	disabled: false,
 	relatedPrimaryKey: '+',
 	circularField: null,
+	applyShortcut: 'meta+enter',
 });
 
 const emit = defineEmits<OverlayItemEmits>();
@@ -66,7 +74,7 @@ const { internalActive } = useActiveState();
 const { junctionFieldInfo, relatedCollection, relatedCollectionInfo, relatedPrimaryKeyField } = useRelation();
 
 const { internalEdits, loading, initialValues, refresh } = useItem();
-const { save, cancel, overlayActive } = useActions();
+const { save, cancel, overlayActive, getTooltip } = useActions();
 
 const { collection, primaryKey, relatedPrimaryKey } = toRefs(props);
 
@@ -85,6 +93,8 @@ function discardAndLeave() {
 	router.push(leaveTo.value);
 }
 
+const { confirmCancel, discardAndCancel, confirmCancellation } = useCancelGuard();
+
 const title = computed(() => {
 	const collection = relatedCollectionInfo?.value || collectionInfo.value!;
 
@@ -92,10 +102,10 @@ const title = computed(() => {
 		return isNew.value
 			? t('creating_unit', {
 					unit: t(`collection_names_singular.${collection.collection}`),
-			  })
+				})
 			: t('editing_unit', {
 					unit: t(`collection_names_singular.${collection.collection}`),
-			  });
+				});
 	}
 
 	return isNew.value
@@ -198,7 +208,7 @@ const templatePrimaryKey = computed(() =>
 const templateCollection = computed(() => relatedCollectionInfo.value || collectionInfo.value);
 
 const isSavable = computed(() => {
-	if (props.disabled) return false;
+	if (props.disabled || !hasEdits.value) return false;
 	if (!relatedCollection.value) return saveAllowed.value;
 	return saveAllowed.value || saveRelatedCollectionAllowed.value;
 });
@@ -223,9 +233,20 @@ const overlayItemContentProps = computed(() => {
 		junctionFieldLocation: props.junctionFieldLocation,
 		relatedCollectionFields: relatedCollectionFields.value,
 		relatedPrimaryKey: props.relatedPrimaryKey,
+		relatedPrimaryKeyField: relatedPrimaryKeyField.value?.field ?? null,
 		refresh,
 	};
 });
+
+const { provideRunManualFlow } = useFlows({
+	collection: collection.value,
+	primaryKey: primaryKey.value,
+	location: 'item',
+	hasEdits,
+	onRefreshCallback: refresh,
+});
+
+provideRunManualFlow();
 
 function useActiveState() {
 	const localActive = ref(false);
@@ -382,21 +403,69 @@ function useActions() {
 		},
 	});
 
-	return { save, cancel, overlayActive };
+	useShortcut(props.applyShortcut, (_event, cancelNext) => {
+		// Note that drawer and modal have existing shortcuts.
+		if (props.overlay !== 'popover' || !internalActive.value) return;
+
+		save();
+		cancelNext();
+	});
+
+	useShortcut('escape', (_event, cancelNext) => {
+		// Note that drawer and modal have existing shortcuts.
+		if (props.overlay !== 'popover' || !internalActive.value) return;
+
+		cancel();
+		cancelNext();
+	});
+
+	return { save, cancel, overlayActive, getTooltip };
+
+	function getTooltip(shortcutType: 'save' | 'cancel', label: string | null = null) {
+		let shortcut = null;
+
+		if (shortcutType === 'save') shortcut = translateShortcut(props.applyShortcut.split('+'));
+		else shortcut = translateShortcut(['esc']);
+
+		if (label && shortcut) return `${label} (${shortcut})`;
+		if (label) return label;
+		if (shortcut) return shortcut;
+
+		return null;
+	}
+
+	function validateForm({ defaultValues, existingValues, editsToValidate, fieldsToValidate }: Record<string, any>) {
+		return validateItem(merge({}, defaultValues, existingValues, editsToValidate), fieldsToValidate, isNew.value, true);
+	}
 
 	function save() {
-		const editsToValidate = props.junctionField ? internalEdits.value[props.junctionField] : internalEdits.value;
-		const fieldsToValidate = props.junctionField ? relatedCollectionFields.value : fieldsWithoutCircular.value;
-		const defaultValues = getDefaultValuesFromFields(fieldsToValidate);
-		const existingValues = props.junctionField ? initialValues?.value?.[props.junctionField] : initialValues?.value;
+		if (!isSavable.value) return;
 
-		const errors = validateItem(
-			merge({}, defaultValues.value, existingValues, editsToValidate),
-			fieldsToValidate,
-			isNew.value,
-		);
+		const errors = validateForm({
+			defaultValues: unref(getDefaultValuesFromFields(fieldsWithoutCircular.value)),
+			existingValues: initialValues?.value,
+			editsToValidate: internalEdits.value,
+			fieldsToValidate: fieldsWithoutCircular.value,
+		});
 
-		if (nestedValidationErrors.value?.length) errors.push(...nestedValidationErrors.value);
+		let junctionValues = null;
+
+		if (props.junctionField) {
+			junctionValues = {
+				defaultValues: unref(getDefaultValuesFromFields(relatedCollectionFields.value)),
+				existingValues: initialValues?.value?.[props.junctionField],
+				editsToValidate: internalEdits.value[props.junctionField],
+				fieldsToValidate: relatedCollectionFields.value,
+			};
+
+			const junctionErrors = validateForm(junctionValues);
+
+			errors.push(...junctionErrors);
+		}
+
+		if (nestedValidationErrors.value?.length) {
+			errors.push(...nestedValidationErrors.value);
+		}
 
 		if (errors.length > 0) {
 			validationErrors.value = errors;
@@ -405,8 +474,8 @@ function useActions() {
 			validationErrors.value = [];
 		}
 
-		if (props.junctionField && Object.values(defaultValues.value).some((value) => value !== null)) {
-			internalEdits.value[props.junctionField] = internalEdits.value[props.junctionField] ?? {};
+		if (props.junctionField && Object.values(junctionValues?.defaultValues ?? {}).some((value) => value !== null)) {
+			internalEdits.value[props.junctionField] = junctionValues?.editsToValidate ?? {};
 		}
 
 		if (props.junctionField && props.relatedPrimaryKey !== '+' && relatedPrimaryKeyField.value) {
@@ -424,10 +493,37 @@ function useActions() {
 	}
 
 	function cancel() {
-		validationErrors.value = [];
-		internalActive.value = false;
-		internalEdits.value = {};
+		if (confirmCancellation.value) {
+			confirmCancel.value = true;
+			return;
+		}
+
+		discardAndCancel();
 	}
+}
+
+function useCancelGuard() {
+	const confirmCancel = ref(false);
+	const confirmCancellation = computed(() => props.preventCancelWithEdits && hasEdits.value);
+
+	return {
+		confirmCancel,
+		discardAndCancel,
+		confirmCancellation,
+	};
+
+	function discardAndCancel() {
+		validationErrors.value = [];
+		internalEdits.value = {};
+		internalActive.value = false;
+		confirmCancel.value = false;
+	}
+}
+
+function popoverClickOutsideMiddleware(e: Event) {
+	const dialogs = document.getElementById('dialog-outlet');
+	if (!dialogs) return true;
+	return !dialogs.contains(e.target as Node);
 }
 </script>
 
@@ -438,6 +534,8 @@ function useActions() {
 		:title="title"
 		:icon="collectionInfo?.meta?.icon ?? undefined"
 		persistent
+		:apply-shortcut
+		@apply="save"
 		@cancel="cancel"
 	>
 		<template v-if="template !== null && templateData && primaryKey !== '+'" #title>
@@ -455,7 +553,7 @@ function useActions() {
 		<template #actions>
 			<slot name="actions" />
 
-			<v-button v-tooltip.bottom="t('save')" icon rounded :disabled="!isSavable" @click="save">
+			<v-button v-tooltip.bottom="getTooltip('save', t('save'))" icon rounded :disabled="!isSavable" @click="save">
 				<v-icon name="check" />
 			</v-button>
 		</template>
@@ -467,7 +565,15 @@ function useActions() {
 		/>
 	</v-drawer>
 
-	<v-dialog v-else-if="overlay === 'modal'" v-model="overlayActive" persistent keep-behind @esc="cancel">
+	<v-dialog
+		v-else-if="overlay === 'modal'"
+		v-model="overlayActive"
+		persistent
+		keep-behind
+		:apply-shortcut
+		@apply="save"
+		@esc="cancel"
+	>
 		<v-card class="modal-card">
 			<v-card-title>
 				<v-icon :name="collectionInfo?.meta?.icon ?? undefined" class="modal-title-icon" />
@@ -480,21 +586,26 @@ function useActions() {
 				class="modal-item-content"
 			/>
 
+			<div class="shadow-cover" />
+
 			<v-card-actions>
 				<slot name="actions" />
-				<v-button secondary @click="cancel">{{ t('cancel') }}</v-button>
-				<v-button :disabled="!isSavable" @click="save">{{ t('save') }}</v-button>
+				<v-button v-tooltip="getTooltip('cancel')" secondary @click="cancel">{{ t('cancel') }}</v-button>
+				<v-button v-tooltip="getTooltip('save')" :disabled="!isSavable" @click="save">{{ t('save') }}</v-button>
 			</v-card-actions>
 		</v-card>
 	</v-dialog>
 
 	<v-menu
 		v-else-if="overlay === 'popover'"
+		v-bind="popoverProps"
 		v-model="overlayActive"
 		:close-on-click="false"
 		:close-on-content-click="false"
-		placement="top"
+		placement="top-start"
+		:offset-x="-16"
 		show-arrow
+		:arrow-padding="16"
 		seamless
 		keep-behind
 	>
@@ -502,28 +613,37 @@ function useActions() {
 			<slot name="popover-activator" v-bind="activatorProps" />
 		</template>
 
-		<div class="popover-actions">
-			<div class="popover-actions-inner">
-				<slot name="actions" />
+		<div
+			v-click-outside="{
+				handler: cancel,
+				middleware: popoverClickOutsideMiddleware,
+				disabled: !preventCancelWithEdits,
+				events: ['click'],
+			}"
+		>
+			<div class="popover-actions">
+				<div class="popover-actions-inner">
+					<slot name="actions" />
 
-				<v-button v-tooltip="t('cancel')" x-small rounded icon secondary @click="cancel">
-					<v-icon small name="close" outline />
-				</v-button>
+					<v-button v-tooltip="getTooltip('cancel', t('cancel'))" x-small rounded icon secondary @click="cancel">
+						<v-icon small name="close" outline />
+					</v-button>
 
-				<v-button v-tooltip="t('save')" x-small rounded icon :disabled="!isSavable" @click="save">
-					<v-icon small name="check" outline />
-				</v-button>
+					<v-button v-tooltip="getTooltip('save', t('save'))" x-small rounded icon :disabled="!isSavable" @click="save">
+						<v-icon small name="check" outline />
+					</v-button>
+				</div>
 			</div>
-		</div>
 
-		<overlay-item-content
-			v-model:internal-edits="internalEdits"
-			v-bind="overlayItemContentProps"
-			class="popover-item-content"
-		/>
+			<overlay-item-content
+				v-model:internal-edits="internalEdits"
+				v-bind="overlayItemContentProps"
+				class="popover-item-content"
+			/>
+		</div>
 	</v-menu>
 
-	<v-dialog v-model="confirmLeave" @esc="confirmLeave = false">
+	<v-dialog v-model="confirmLeave" @esc="confirmLeave = false" @apply="discardAndLeave">
 		<v-card>
 			<v-card-title>{{ t('unsaved_changes') }}</v-card-title>
 			<v-card-text>{{ t('unsaved_changes_copy') }}</v-card-text>
@@ -532,6 +652,19 @@ function useActions() {
 					{{ t('discard_changes') }}
 				</v-button>
 				<v-button @click="confirmLeave = false">{{ t('keep_editing') }}</v-button>
+			</v-card-actions>
+		</v-card>
+	</v-dialog>
+
+	<v-dialog v-model="confirmCancel" @esc="confirmCancel = false" @apply="discardAndCancel">
+		<v-card>
+			<v-card-title>{{ t('discard_all_changes') }}</v-card-title>
+			<v-card-text>{{ t('discard_changes_copy') }}</v-card-text>
+			<v-card-actions>
+				<v-button secondary @click="discardAndCancel">
+					{{ t('discard_changes') }}
+				</v-button>
+				<v-button @click="confirmCancel = false">{{ t('keep_editing') }}</v-button>
 			</v-card-actions>
 		</v-card>
 	</v-dialog>
@@ -546,55 +679,95 @@ function useActions() {
 }
 
 .modal-card {
-	width: calc(2 * var(--form-column-width) + var(--theme--form--column-gap) + 2 * var(--v-card-padding)) !important;
-	max-width: 90vw !important;
+	inline-size: calc(
+		2 * var(--form-column-width) + var(--theme--form--column-gap) + 2 * var(--v-card-padding)
+	) !important;
+	max-inline-size: 90vw !important;
+
+	@media (min-height: 375px) {
+		--button-height: var(--v-button-height, 44px);
+		--button-gap: 12px;
+		--shadow-height: 7px;
+		--shadow-cover-height: 10px;
+
+		.v-card-actions {
+			z-index: 100;
+			position: sticky;
+			inset-block-end: calc(var(--button-gap) - var(--v-card-padding));
+			padding-block-start: var(--button-gap);
+			background: var(--v-card-background-color);
+			box-shadow: 0 0 var(--shadow-height) 0 rgb(0 0 0 / 0.2);
+
+			.dark & {
+				box-shadow: 0 0 var(--shadow-height) 0 black;
+			}
+		}
+
+		.shadow-cover {
+			z-index: 101;
+			position: sticky;
+			inset-block-end: calc(var(--button-gap) + var(--button-height) + var(--button-gap) - var(--shadow-cover-height));
+			block-size: calc(var(--v-card-padding) - var(--button-gap));
+			inline-size: 100%;
+
+			&::after {
+				content: '';
+				position: absolute;
+				inset-block-end: 0;
+				inset-inline-start: 0;
+				inline-size: 100%;
+				block-size: var(--shadow-cover-height);
+				background: var(--v-card-background-color);
+			}
+		}
+	}
 }
 
 .modal-title-icon {
-	margin-right: 8px;
+	margin-inline-end: 8px;
 }
 
 .modal-item-content {
 	padding: var(--v-card-padding);
-	padding-bottom: var(--theme--form--column-gap);
+	padding-block-end: var(--theme--form--column-gap);
 }
 
 .popover-item-content {
 	--content-padding: var(--theme--form--column-gap);
 	--content-padding-bottom: var(--theme--form--row-gap);
 
-	padding-top: var(--content-padding-bottom);
+	padding-block-start: var(--content-padding-bottom);
 	position: relative;
 	z-index: 0;
-	width: calc(2 * var(--form-column-width) + var(--theme--form--column-gap) + 2 * var(--content-padding));
-	max-width: 90vw;
+	inline-size: calc(2 * var(--form-column-width) + var(--theme--form--column-gap) + 2 * var(--content-padding));
+	max-inline-size: 90vw;
 
 	:deep(.v-form:first-child .first-visible-field .field-label),
 	:deep(.v-form:first-child .first-visible-field.half + .half-right .field-label) {
 		--popover-action-width: 100px; // 3 * 28 (button) + 2 * 8 (gap)
 
-		max-width: calc(100% - var(--popover-action-width));
+		max-inline-size: calc(100% - var(--popover-action-width));
 	}
 
 	&.empty {
-		min-height: 232px;
+		min-block-size: 232px;
 	}
 }
 
 .popover-actions {
 	position: sticky;
-	top: 0;
-	left: 0;
+	inset-block-start: 0;
+	inset-inline-start: 0;
 	z-index: 1;
 }
 
 .popover-actions-inner {
 	position: relative;
 	display: flex;
-	justify-content: right;
+	justify-content: end;
 	gap: 8px;
-	top: 12px;
-	right: 16px;
+	inset-block-start: 12px;
+	inset-inline-end: 16px;
 }
 
 // Puts the action buttons closer to the field

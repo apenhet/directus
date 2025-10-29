@@ -3,6 +3,8 @@ import api from '@/api';
 import { useExtension } from '@/composables/use-extension';
 import { useCollectionPermissions } from '@/composables/use-permissions';
 import { usePreset } from '@/composables/use-preset';
+import { useFlows } from '@/composables/use-flows';
+import { usePermissionsStore } from '@/stores/permissions';
 import { getCollectionRoute, getItemRoute } from '@/utils/get-route';
 import { unexpectedError } from '@/utils/unexpected-error';
 import ArchiveSidebarDetail from '@/views/private/components/archive-sidebar-detail.vue';
@@ -22,6 +24,7 @@ import { useRouter } from 'vue-router';
 import ContentNavigation from '../components/navigation.vue';
 import ContentNotFound from './not-found.vue';
 import { isSystemCollection } from '@directus/system-data';
+import FlowDialogs from '@/views/private/components/flow-dialogs.vue';
 
 type Item = {
 	[field: string]: any;
@@ -99,22 +102,24 @@ const {
 	createAllowed,
 } = useCollectionPermissions(collection);
 
-const hasArchive = computed(
-	() =>
-		currentCollection.value &&
-		currentCollection.value.meta?.archive_field &&
-		currentCollection.value.meta?.archive_app_filter,
-);
+const permissionsStore = usePermissionsStore();
+
+const hasArchive = computed(() => {
+	const archiveField = currentCollection.value?.meta?.archive_field;
+	if (!archiveField || !currentCollection.value?.meta?.archive_app_filter) return false;
+
+	const permissions = permissionsStore.getPermission(collection.value, 'read');
+	if (permissions?.access === 'none') return false;
+
+	const hasArchiveFieldPermission = permissions?.fields?.[0] === '*' || permissions?.fields?.includes(archiveField);
+	return hasArchiveFieldPermission;
+});
 
 const archiveFilter = computed<Filter | null>(() => {
-	if (!currentCollection.value?.meta) return null;
-	if (!currentCollection.value?.meta?.archive_app_filter) return null;
+	if (!hasArchive.value) return null;
 
-	const field = currentCollection.value.meta.archive_field;
-
-	if (!field) return null;
-
-	let archiveValue: any = currentCollection.value.meta.archive_value;
+	const field = currentCollection.value!.meta!.archive_field!;
+	let archiveValue: any = currentCollection.value!.meta!.archive_value;
 	if (archiveValue === 'true') archiveValue = true;
 	if (archiveValue === 'false') archiveValue = false;
 
@@ -134,6 +139,15 @@ const archiveFilter = computed<Filter | null>(() => {
 		};
 	}
 });
+
+const { flowDialogsContext, manualFlows, provideRunManualFlow } = useFlows({
+	collection: collection.value,
+	selection,
+	location: 'collection',
+	onRefreshCallback: refresh,
+});
+
+provideRunManualFlow();
 
 async function refresh() {
 	await layoutRef.value?.state?.refresh?.();
@@ -183,6 +197,8 @@ function useBatch() {
 	return { batchEditActive, confirmDelete, deleting, batchDelete, confirmArchive, archiving, archiveItems, error };
 
 	async function batchDelete() {
+		if (deleting.value) return;
+
 		deleting.value = true;
 
 		const batchPrimaryKeys = selection.value;
@@ -203,7 +219,7 @@ function useBatch() {
 	}
 
 	async function archiveItems() {
-		if (!currentCollection.value?.meta?.archive_field) return;
+		if (archiving.value || !currentCollection.value?.meta?.archive_field) return;
 
 		archiving.value = true;
 
@@ -349,7 +365,7 @@ function clearFilters() {
 						@save="createBookmark"
 					>
 						<template #activator="{ on }">
-							<v-icon class="toggle" name="bookmark" clickable @click="on" />
+							<v-icon v-tooltip.bottom="t('create_bookmark')" class="toggle" name="bookmark" clickable @click="on" />
 						</template>
 					</bookmark-add>
 
@@ -371,7 +387,7 @@ function clearFilters() {
 			<template #actions>
 				<search-input v-model="search" v-model:filter="filter" :collection="collection" />
 
-				<v-dialog v-if="selection.length > 0" v-model="confirmDelete" @esc="confirmDelete = false">
+				<v-dialog v-if="selection.length > 0" v-model="confirmDelete" @esc="confirmDelete = false" @apply="batchDelete">
 					<template #activator="{ on }">
 						<v-button
 							v-tooltip.bottom="batchDeleteAllowed ? t('delete_label') : t('not_allowed')"
@@ -409,6 +425,7 @@ function clearFilters() {
 					"
 					v-model="confirmArchive"
 					@esc="confirmArchive = false"
+					@apply="archiveItems"
 				>
 					<template #activator="{ on }">
 						<v-button
@@ -458,6 +475,8 @@ function clearFilters() {
 				>
 					<v-icon name="add" />
 				</v-button>
+
+				<flow-dialogs v-bind="flowDialogsContext" />
 			</template>
 
 			<template #navigation>
@@ -544,15 +563,10 @@ function clearFilters() {
 					:on-download="downloadHandler"
 					@refresh="refresh"
 				/>
-				<flow-sidebar-detail
-					location="collection"
-					:collection="collection"
-					:selection="selection"
-					@refresh="batchRefresh"
-				/>
+				<flow-sidebar-detail :manual-flows />
 			</template>
 
-			<v-dialog :model-value="deleteError !== null">
+			<v-dialog :model-value="deleteError !== null" @esc="deleteError = null">
 				<v-card>
 					<v-card-title>{{ t('something_went_wrong') }}</v-card-title>
 					<v-card-text>
@@ -578,7 +592,7 @@ function clearFilters() {
 }
 
 .reset-preset {
-	margin-top: 24px;
+	margin-block-start: 24px;
 }
 
 .bookmark-controls {
@@ -587,7 +601,7 @@ function clearFilters() {
 	.saved,
 	.clear {
 		display: inline-block;
-		margin-left: 8px;
+		margin-inline-start: 8px;
 	}
 
 	.add,
@@ -614,7 +628,7 @@ function clearFilters() {
 	}
 
 	.clear {
-		margin-left: 4px;
+		margin-inline-start: 4px;
 		color: var(--theme--foreground-subdued);
 
 		&:hover {

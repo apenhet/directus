@@ -26,6 +26,8 @@ const props = withDefaults(
 
 const emit = defineEmits<{
 	input: [value: string | number | Record<string, unknown> | boolean | null];
+	commaKeyPressed: [];
+	commaValuePasted: [value: string];
 }>();
 
 const { t } = useI18n();
@@ -100,13 +102,35 @@ function onEffect(value: typeof props.value) {
 	isInputValid.value = isValueValid(value);
 }
 
-function onInput(value: string | null) {
+function onInput(value: string | number | Record<string, unknown> | boolean | null) {
 	isInputValid.value = isValueValid(value);
 
-	if (isInputValid.value) {
-		emit('input', value === '' ? null : value);
+	if (isInputValid.value) emit('input', value === '' ? null : value);
+}
+
+function onKeyDown(event: KeyboardEvent) {
+	if (event.key === ',' && props.commaAllowed) {
+		event.preventDefault();
+		emit('commaKeyPressed');
 	}
 }
+
+function onPaste(event: ClipboardEvent) {
+	if (!props.commaAllowed) return;
+
+	const clipboardData = event.clipboardData?.getData('text') || '';
+
+	if (clipboardData.includes(',')) {
+		event.preventDefault();
+		emit('commaValuePasted', clipboardData);
+	}
+}
+
+defineExpose({
+	focus() {
+		inputEl.value?.focus();
+	},
+});
 </script>
 
 <template>
@@ -127,6 +151,8 @@ function onInput(value: string | null) {
 		:value="value"
 		placeholder="--"
 		@input="onInput(($event.target as HTMLInputElement).value)"
+		@keydown="onKeyDown"
+		@paste="onPaste"
 	/>
 	<v-select
 		v-else-if="is === 'select'"
@@ -149,7 +175,7 @@ function onInput(value: string | null) {
 		/>
 		<v-menu ref="dateTimeMenu" :close-on-content-click="false" show-arrow placement="bottom-start" seamless full-height>
 			<template #activator="{ toggle }">
-				<v-icon class="preview" name="event" small @click="toggle" />
+				<v-icon class="preview" name="event" small clickable @click="toggle" />
 			</template>
 			<div class="date-input">
 				<v-date-picker
@@ -203,12 +229,12 @@ function onInput(value: string | null) {
 	&.timestamp,
 	&.time,
 	&.dateTime {
-		min-width: 250px;
+		min-inline-size: 250px;
 	}
 
 	&.geometry,
 	&.json {
-		width: 500px;
+		inline-size: 500px;
 	}
 }
 
@@ -218,7 +244,7 @@ input {
 	line-height: 1em;
 	background-color: var(--theme--form--field--input--background);
 	border: none;
-	max-width: 40ch;
+	max-inline-size: 40ch;
 	box-shadow: 0 4px 0 -2px v-bind(inputBorderColor);
 
 	&::placeholder {
@@ -230,10 +256,10 @@ input {
 
 .dialog {
 	position: relative;
-	min-width: 800px;
+	min-inline-size: 800px;
 }
 
 .date-input {
-	min-width: 400px;
+	min-inline-size: 400px;
 }
 </style>

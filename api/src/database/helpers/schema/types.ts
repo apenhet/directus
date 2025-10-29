@@ -1,8 +1,7 @@
 import type { KNEX_TYPES } from '@directus/constants';
 import type { Column } from '@directus/schema';
-import type { Field, RawField, Relation, Type } from '@directus/types';
+import type { DatabaseClient, Field, RawField, Relation, Type } from '@directus/types';
 import type { Knex } from 'knex';
-import type { DatabaseClient } from '../../../types/index.js';
 import { getDefaultIndexName } from '../../../utils/get-default-index-name.js';
 import { getDatabaseClient } from '../../index.js';
 import { DatabaseHelper } from '../types.js';
@@ -146,22 +145,6 @@ export abstract class SchemaHelper extends DatabaseHelper {
 		return 'CAST(?? AS CHAR(255))';
 	}
 
-	applyMultiRelationalSort(
-		knex: Knex,
-		dbQuery: Knex.QueryBuilder,
-		table: string,
-		primaryKey: string,
-		orderByString: string,
-		orderByFields: Knex.Raw[],
-	): Knex.QueryBuilder {
-		dbQuery.rowNumber(
-			knex.ref('directus_row_number').toQuery(),
-			knex.raw(`partition by ?? order by ${orderByString}`, [`${table}.${primaryKey}`, ...orderByFields]),
-		);
-
-		return dbQuery;
-	}
-
 	formatUUID(uuid: string): string {
 		return uuid; // no-op by default
 	}
@@ -187,5 +170,13 @@ export abstract class SchemaHelper extends DatabaseHelper {
 		_hasRelationalSort: boolean,
 	): void {
 		// no-op by default
+	}
+
+	getColumnNameMaxLength() {
+		return 64;
+	}
+
+	getTableNameMaxLength() {
+		return 64;
 	}
 }

@@ -316,7 +316,6 @@ field_in_collection: '{field} ({collection})'
 reset_page_preferences: Resetovať predvoľby stránky
 hidden_field: Skryté pole
 hidden_on_detail: Skryté v podrobnostiach
-disabled_editing_value: Vypnúť zmeny hodnoty
 key: Kľúč
 alias: Alias
 bigInteger: Veľký Integer
@@ -938,7 +937,6 @@ run_flow_on_current: Spustiť tok na aktuálnej položke
 run_flow_on_current_edited_confirm: Táto položka sa môže vykonaním tohoto toku zmeniť, naozaj to chcete vykonať?
 run_flow_on_selected: Najprv zvoľte jednu alebo viac položiek | Spustiť tok na 1 zvolenej položke | Spustiť tok na {n} zvolených položkách
 run_flow: Spustiť tok
-run_flow_success: Tok "{flow}" prebehol úspešne
 field_name_placeholder: Zadajte názov poľa...
 field_key_placeholder: Zadajte kľúč poľa...
 trigger: Spúšťač
@@ -1172,7 +1170,6 @@ page_help_settings_datamodel_fields: >-
   **Data Model: Zbierka** — Formulár na správu tejto zbierky a jej polí.
 page_help_settings_system_logs: '**Systémové logy** — Prístup k streamu systémových logov.'
 page_help_settings_policies_collection: '**Prehliadať politiky** - Zoznam všetkých politík v projekte.'
-page_help_settings_policies_item: "**Detaily politiky** - Spravuje povolenia politiky a iné nastavenia."
 page_help_settings_roles_collection: '**Prehliadať role** - Zoznam všetkých rolí v projekte.'
 page_help_settings_roles_item: "**Podrobnosti role** — Spravuje oprávnenia rolí a iné nastavenia."
 page_help_settings_presets_collection: >-
@@ -1572,6 +1569,8 @@ unlimited_usage: Neobmedzené používanie
 uses_left: Žiadne zostávajúce použitia | Jedno zostávajúce použitie | {n} zostávajúcich použití
 no_shares: Žiadne zdieľania
 new_share: Nové zdieľanie
+mcp_prompts_collection_schema:
+  messages_role_user: Používateľ
 expired: Vypršalo
 upcoming: Nadchádzajúce
 share: Zdielať
@@ -1694,7 +1693,6 @@ translation_placeholder: Zadajte preklad...
 value: Hodnota
 view_project: Zobraziť projekt
 report_error: Nahlásiť chybu
-start: Štart
 table: Tabuľka
 list: Zoznam
 search_filter: Hľadanie a filter
@@ -2277,6 +2275,7 @@ show_labels: Zobraziť názvy
 show_legend: Zobraziť legendu
 right: Vpravo
 left: Vľavo
+start: Štart
 donut: Donut
 panels:
   metric:

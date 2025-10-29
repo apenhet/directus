@@ -183,7 +183,6 @@ create_field: Krei kampon
 creating_new_field: 'Nova kampo ({collection})'
 field_in_collection: '{field} ({collection})'
 hidden_field: Kaŝita kampo
-disabled_editing_value: Malŝalti redaktadon de la valoro
 key: Ŝlosilo
 alias: Kromnomo
 boolean: Bulea valoro
@@ -834,6 +833,8 @@ live_preview:
 shares: Konigoj
 unlimited_usage: Senlima uzado
 new_share: Nova konigo
+mcp_prompts_collection_schema:
+  messages_role_user: Uzanto
 expired: Eksvalidiĝinta
 share: Konigi
 share_item: Konigi la eron
@@ -903,7 +904,6 @@ translation_placeholder: Entajpu tradukon...
 value: Valoro
 view_project: Vidi la projekton
 report_error: Raporti eraron
-start: Komenci
 table: Tabelo
 list: Listo
 search_filter: Serĉi kaj filtri
@@ -1194,6 +1194,7 @@ broad: Larĝa
 show_labels: Montri etikedojn
 right: Dekstra
 left: Maldekstra
+start: Komenci
 panels:
   metric:
     field: Kampo

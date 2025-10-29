@@ -17,16 +17,12 @@ const { t } = useI18n();
 @use '@/styles/mixins';
 
 .readme {
-	:deep(*) {
-		user-select: text;
-	}
-
 	:deep() {
 		@include mixins.markdown;
 	}
 
 	:deep(* + *) {
-		margin-top: 1rem;
+		margin-block-start: 1rem;
 	}
 
 	:deep(img) {
@@ -36,6 +32,6 @@ const { t } = useI18n();
 
 .notice {
 	align-self: flex-start;
-	margin-top: 4px;
+	margin-block-start: 4px;
 }
 </style>

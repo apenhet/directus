@@ -1,10 +1,10 @@
-import { createError, ErrorCode } from '@directus/errors';
 import type { Knex } from 'knex';
 import knex from 'knex';
 import { createTracker, MockClient, Tracker } from 'knex-mock-client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { useBus } from '../bus/index.js';
 import { WebhooksService } from './index.js';
+import { SchemaBuilder } from '@directus/schema-builder';
 
 vi.mock('../../src/database/index', () => {
 	return { __esModule: true, default: vi.fn(), getDatabaseClient: vi.fn().mockReturnValue('postgres') };
@@ -35,44 +35,18 @@ describe('Integration Tests', () => {
 		let service: WebhooksService;
 		let messengerPublishSpy: MockInstance;
 
-		const errorDeprecation = new (createError(
-			ErrorCode.MethodNotAllowed,
-			'Webhooks are deprecated, use Flows instead',
-			405,
-		))();
+		const schema = new SchemaBuilder()
+			.collection('directus_webhooks', (c) => {
+				c.field('id').integer().primary().options({
+					nullable: false,
+				});
+			})
+			.build();
 
 		beforeEach(() => {
 			service = new WebhooksService({
 				knex: db,
-				schema: {
-					collections: {
-						directus_webhooks: {
-							collection: 'directus_webhooks',
-							primary: 'id',
-							singleton: false,
-							sortField: null,
-							note: null,
-							accountability: null,
-							fields: {
-								id: {
-									field: 'id',
-									defaultValue: null,
-									nullable: false,
-									generated: true,
-									type: 'integer',
-									dbType: 'integer',
-									precision: null,
-									scale: null,
-									special: [],
-									note: null,
-									validation: null,
-									alias: false,
-								},
-							},
-						},
-					},
-					relations: [],
-				},
+				schema,
 			});
 
 			messengerPublishSpy = vi.spyOn(useBus(), 'publish');
@@ -84,31 +58,51 @@ describe('Integration Tests', () => {
 
 		describe('createOne', () => {
 			it('should error because of deprecation', async () => {
-				return expect(service.createOne({})).rejects.toEqual(errorDeprecation);
+				await expect(service.createOne()).rejects.toMatchObject({
+					code: 'METHOD_NOT_ALLOWED',
+					message: 'Webhooks are deprecated, use Flows instead',
+					status: 405,
+				});
 			});
 		});
 
 		describe('createMany', () => {
 			it('should error because of deprecation', async () => {
-				return expect(service.createMany([{}])).rejects.toEqual(errorDeprecation);
+				await expect(service.createMany()).rejects.toMatchObject({
+					code: 'METHOD_NOT_ALLOWED',
+					message: 'Webhooks are deprecated, use Flows instead',
+					status: 405,
+				});
 			});
 		});
 
 		describe('updateOne', () => {
 			it('should error because of deprecation', async () => {
-				return expect(service.updateOne(1, {})).rejects.toEqual(errorDeprecation);
+				await expect(service.updateOne(1, {})).rejects.toMatchObject({
+					code: 'METHOD_NOT_ALLOWED',
+					message: 'Webhooks are deprecated, use Flows instead',
+					status: 405,
+				});
 			});
 		});
 
 		describe('updateMany', () => {
 			it('should error because of deprecation', async () => {
-				return expect(service.updateMany([1], {})).rejects.toEqual(errorDeprecation);
+				await expect(service.updateMany()).rejects.toMatchObject({
+					code: 'METHOD_NOT_ALLOWED',
+					message: 'Webhooks are deprecated, use Flows instead',
+					status: 405,
+				});
 			});
 		});
 
 		describe('updateBatch', () => {
 			it('should error because of deprecation', async () => {
-				return expect(service.updateBatch()).rejects.toEqual(errorDeprecation);
+				await expect(service.updateBatch()).rejects.toMatchObject({
+					code: 'METHOD_NOT_ALLOWED',
+					message: 'Webhooks are deprecated, use Flows instead',
+					status: 405,
+				});
 			});
 		});
 

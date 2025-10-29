@@ -216,7 +216,6 @@ field_in_collection: '{field} ({collection})'
 reset_page_preferences: Reset Preferensi Halaman
 hidden_field: Kolom Tersembunyi
 hidden_on_detail: Disembunyikan dalam Rincian
-disabled_editing_value: Nonaktifkan mengubah nilai
 key: Kunci
 alias: Alias
 bigInteger: Big Integer
@@ -764,7 +763,6 @@ run_flow_on_current: Jalankan Flow pada Item Ini
 run_flow_on_current_edited_confirm: Item ini mungkin akan diperbarui sesuai dengan alur ini, apakah anda yakin akan menjalankannya?
 run_flow_on_selected: Pilih Satu atau Lebih Item Terlebih Dahulu | Jalankan Flow pada 1 Item Terpilih | Jalankan Flow pada {n} Item yang Dipilih
 run_flow: Jalankan Flow
-run_flow_success: Alur "{flow}" berhasil dijalankan
 field_name_placeholder: Masukkan Nama Kolom...
 field_key_placeholder: Masukkan Kunci Kolom...
 trigger: Pemicu
@@ -1243,6 +1241,8 @@ live_preview:
   disable: Nonaktifkan Pratinjau
   refresh: Segarkan pratinjau
   new_window: Buka di Jendela Baru
+mcp_prompts_collection_schema:
+  messages_role_user: Pengguna
 expired: Kedaluwarsa
 share: Bagikan
 share_item: Bagikan Item
@@ -1311,7 +1311,6 @@ translation_placeholder: Masukkan terjemahan...
 value: Nilai
 view_project: Lihat Proyek
 report_error: Lapor Kesalahan
-start: Mulai
 table: Tabel
 list: Daftar
 search_filter: Saring dan Cari
@@ -1507,6 +1506,7 @@ layouts:
     crop: Potong
     advanced: Tingkat lanjut
 both: Keduanya
+start: Mulai
 panels:
   label:
     name: Label

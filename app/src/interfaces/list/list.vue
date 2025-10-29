@@ -81,14 +81,13 @@ const defaults = computed(() => {
 	return values;
 });
 
-const fieldsWithNames = computed(
-	() =>
-		props.fields?.map((field) => {
-			return {
-				...field,
-				name: formatTitle(field.name ?? field.field!),
-			};
-		}),
+const fieldsWithNames = computed(() =>
+	props.fields?.map((field) => {
+		return {
+			...field,
+			name: formatTitle(field.name ?? field.field!),
+		};
+	}),
 );
 
 const internalValue = computed({
@@ -113,6 +112,8 @@ function openItem(index: number) {
 }
 
 function saveItem(index: number) {
+	if (isSaveDisabled.value) return;
+
 	isNewItem.value = false;
 
 	updateValues(index, edits.value);
@@ -256,6 +257,7 @@ function closeDrawer() {
 			persistent
 			@update:model-value="checkDiscard()"
 			@cancel="checkDiscard()"
+			@apply="saveItem(active!)"
 		>
 			<template #title>
 				<h1 class="type-title">
@@ -282,7 +284,7 @@ function closeDrawer() {
 			</div>
 		</v-drawer>
 
-		<v-dialog v-model="confirmDiscard" @esc="confirmDiscard = false">
+		<v-dialog v-model="confirmDiscard" @esc="confirmDiscard = false" @apply="discardAndLeave">
 			<v-card>
 				<v-card-title>{{ t('unsaved_changes') }}</v-card-title>
 				<v-card-text>{{ t('unsaved_changes_copy') }}</v-card-text>
@@ -314,6 +316,6 @@ function closeDrawer() {
 
 .drawer-item-content {
 	padding: var(--content-padding);
-	padding-bottom: var(--content-padding-bottom);
+	padding-block-end: var(--content-padding-bottom);
 }
 </style>

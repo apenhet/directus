@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { getFlatpickrLocale } from '@/utils/get-flatpickr-locale';
-import { format, formatISO } from 'date-fns';
+import { format } from 'date-fns';
 import Flatpickr from 'flatpickr';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
@@ -72,9 +72,9 @@ const defaultOptions = {
 	},
 	onReady(_selectedDates: Date[], _dateStr: string, instance: Flatpickr.Instance) {
 		const setToNowButton: HTMLElement = document.createElement('button');
+		setToNowButton.setAttribute('type', 'button');
 		setToNowButton.innerHTML = t('interfaces.datetime.set_to_now');
 		setToNowButton.classList.add('set-to-now-button');
-		setToNowButton.tabIndex = -1;
 		setToNowButton.addEventListener('click', setToNow);
 		instance.calendarContainer.appendChild(setToNowButton);
 
@@ -111,7 +111,7 @@ function emitValue(value: Date | null) {
 			emit('update:modelValue', format(value, 'HH:mm:ss'));
 			break;
 		case 'timestamp':
-			emit('update:modelValue', formatISO(value));
+			emit('update:modelValue', value.toISOString());
 			break;
 	}
 

@@ -277,7 +277,6 @@ field_in_collection: '{field} ({collection})'
 reset_page_preferences: Nulstil sideindstillinger
 hidden_field: Skjult felt
 hidden_on_detail: Skjult på detalje
-disabled_editing_value: Deaktiver redigering af værdi
 key: Nøgle
 alias: Alias
 bigInteger: Big Integer
@@ -808,7 +807,6 @@ icon_off: Ikon fra
 label: Etiket
 select_a_flow: Vælg et Flow
 run_flow_on_current_edited_confirm: Dette element kan blive opdateret af dette flow, er du sikker på, at du vil udføre det?
-run_flow_success: Flow "{flow}" kørte med succes
 trigger: Udløser
 trigger_options: Udløserindstillinger
 view_trigger: Vis udløser
@@ -1319,6 +1317,8 @@ shares: Aktier
 unlimited_usage: Ubegrænset brug
 no_shares: Ingen aktier at vise
 new_share: Ny Del
+mcp_prompts_collection_schema:
+  messages_role_user: Bruger
 expired: Udløbet
 upcoming: Kommende
 share: Del
@@ -1426,7 +1426,6 @@ translation_placeholder: Indtast en oversættelse...
 value: Værdi
 view_project: Vis projekt
 report_error: Fejl i rapport
-start: Start
 table: Tabel
 list: Liste
 search_filter: Søg og filtrer
@@ -1943,6 +1942,7 @@ show_labels: Vis etiketter
 show_legend: Vis legende
 right: Højre
 left: venstre
+start: Start
 panels:
   metric:
     name: Metrisk
