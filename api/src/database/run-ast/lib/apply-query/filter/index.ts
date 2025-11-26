@@ -13,6 +13,7 @@ import applyQuery from '../index.js';
 import { getFilterType } from './get-filter-type.js';
 import { applyOperator } from './operator.js';
 import { validateOperator } from './validate-operator.js';
+import { generateAlias } from '../../../utils/generate-alias.js';
 
 export function applyFilter(
 	knex: Knex,
@@ -65,6 +66,7 @@ export function applyFilter(
 				filterPath.length > 1 ||
 				(!(key.includes('(') && key.includes(')')) && schema.collections[collection]?.fields[key]?.type === 'alias')
 			) {
+
 				const { hasMultiRelational, isJoinAdded } = addJoin({
 					path: filterPath,
 					collection,
@@ -91,6 +93,7 @@ export function applyFilter(
 		filter: Filter,
 		collection: string,
 		logical: 'and' | 'or' = 'and',
+		jsonQueries = new Map()
 	) {
 		for (const [key, value] of Object.entries(filter)) {
 			if (key === '_or' || key === '_and') {
@@ -103,7 +106,7 @@ export function applyFilter(
 				/** @NOTE this callback function isn't called until Knex runs the query */
 				dbQuery[logical].where((subQuery) => {
 					value.forEach((subFilter: Record<string, any>) => {
-						addWhereClauses(knex, subQuery, subFilter, collection, key === '_and' ? 'and' : 'or');
+						addWhereClauses(knex, subQuery, subFilter, collection, key === '_and' ? 'and' : 'or', jsonQueries);
 					});
 				});
 
@@ -124,17 +127,51 @@ export function applyFilter(
 			if (!operation) continue;
 
 			const { operator: filterOperator, value: filterValue } = operation;
+			const fieldInfo = schema.collections[collection]?.fields[key]
 
 			if (
 				filterPath.length > 1 ||
 				(!(key.includes('(') && key.includes(')')) && schema.collections[collection]?.fields[key]?.type === 'alias')
 			) {
+				if (fieldInfo?.type === 'json') {
+					const aliasKey = `${collection}.${key}`;
+
+					if (!jsonQueries.has(aliasKey)) {
+						const alias = generateAlias();
+						const query = knex.select('*').from(knex.raw(`json_array_elements(??.??) as ${alias}`, [collection, key]));
+
+						jsonQueries.set(aliasKey, {
+							alias,
+							query,
+						});
+
+						dbQuery.whereExists(query);
+					}
+
+					const { query, alias } = jsonQueries.get(aliasKey);
+
+					const nestedFilters = Object.entries(value);
+
+					if (nestedFilters.length === 0) continue;
+
+					for (const [nestedKey, nestedValue] of nestedFilters) {
+						const nestedOperation = getOperation(nestedKey, nestedValue);
+
+						if (!nestedOperation) continue;
+
+						const nestedPath = [key, ...getFilterPath(nestedKey, nestedValue as Record<string, any>)];
+
+						addJsonQuery(query[logical], nestedPath, nestedOperation.operator, nestedOperation.value, alias);
+					}
+
+					continue;
+				}
+
 				if (!relation) continue;
 
 				if (relationType === 'o2m' || relationType === 'o2a') {
-					let pkField: Knex.Raw<any> | string = `${collection}.${
-						schema.collections[relation!.related_collection!]!.primary
-					}`;
+					let pkField: Knex.Raw<any> | string = `${collection}.${schema.collections[relation!.related_collection!]!.primary
+						}`;
 
 					if (relationType === 'o2a') {
 						pkField = knex.raw(getHelpers(knex).schema.castA2oPrimaryKey(), [pkField]);
@@ -175,9 +212,8 @@ export function applyFilter(
 
 				if (filterPath.includes('_none') || filterPath.includes('_some')) {
 					throw new InvalidQueryError({
-						reason: `"${
-							filterPath.includes('_none') ? '_none' : '_some'
-						}" can only be used with top level relational alias field`,
+						reason: `"${filterPath.includes('_none') ? '_none' : '_some'
+							}" can only be used with top level relational alias field`,
 					});
 				}
 
@@ -224,4 +260,104 @@ export function applyFilter(
 			}
 		}
 	}
+}
+
+function buildJsonPath(filterPath: string[]) {
+	const keys = filterPath
+		.slice(1)
+		.map((segment) => segment.match(/^\[(.+)\]$/)?.[1] ?? segment)
+		.filter((segment) => segment.startsWith('_') === false);
+
+	const tokens: string[] = ['$'];
+
+	keys.forEach((key, index) => {
+		if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+			tokens.push(`.${key}`);
+		} else {
+			const escaped = key.replace(/"/g, '\\"');
+			tokens.push(`."${escaped}"`);
+		}
+
+		if (index < keys.length - 1) {
+			tokens.push('[*]');
+		}
+	});
+
+	return tokens.join('');
+}
+
+function addJsonQuery(query: Knex.QueryBuilder, filterPath: string[], filterOperator: string, filterValue: any, alias: string) {
+	const cast = Number.isFinite(parseFloat(filterValue)) ? 'float' : 'text';
+
+	const jsonPath = buildJsonPath(filterPath);
+
+	const values: string[] = [];
+
+	switch (filterOperator) {
+		case '_contains':
+		case '_ncontains':
+		case '_icontains':
+		case '_nicontains':
+			values.push(`%${filterValue}%`);
+			break;
+		case '_starts_with':
+			values.push(`${filterValue}%`);
+			break;
+		case '_ends_with':
+			values.push(`%${filterValue}`);
+			break;
+		case '_in':
+		case '_nin':
+			values.push(...(Array.isArray(filterValue) ? filterValue : filterValue.split(',')));
+			break;
+		case '_gt':
+		case '_gte':
+		case '_lt':
+		case '_lte':
+			values.push(Number.isFinite(parseFloat(filterValue)) ? parseFloat(filterValue) : filterValue);
+			break;
+		case '_between':
+		case '_nbetween':
+			values.push(...[filterValue[0] ??= 0, filterValue[1] ?? filterValue[0]]);
+			break;
+		case '_empty':
+		case '_nempty':
+			break;
+		default:
+			values.push(filterValue);
+	}
+
+	const operator = {
+		'_eq': `= ?`,
+		'_neq': `!= ?`,
+		'_contains': `LIKE ?`,
+		'_ncontains': `NOT LIKE ?`,
+		'_icontains': `LIKE ?`,
+		'_nicontains': `NOT LIKE ?`,
+		'_starts_with': `LIKE ?`,
+		'_ends_with': `LIKE ?`,
+		'_gt': `> ?`,
+		'_gte': `>= ?`,
+		'_lt': `< ?`,
+		'_lte': `<= ?`,
+		'_in': `IN (${values.map(() => `?`).join(', ')})`,
+		'_nin': `NOT IN (${values.map(() => `?`).join(', ')})`,
+		'_empty': 'IS NULL',
+		'_nempty': 'IS NOT NULL',
+		'_between': `BETWEEN ? AND ?`,
+		'_nbetween': `NOT BETWEEN ? AND ?`,
+	}[filterOperator];
+
+	const jsonValueAccessor = `(json_value #>> '{}')`;
+
+	const applyJsonPathSubQuery = (subQuery: Knex.QueryBuilder) => {
+		subQuery
+			.select(query.client.raw('1'))
+			.fromRaw(query.client.raw(`jsonb_path_query((${alias})::jsonb, ?) as json_path_value(json_value)`, [jsonPath]));
+	};
+
+	query.whereExists((subQuery) => {
+		applyJsonPathSubQuery(subQuery);
+		subQuery.whereRaw(`(${jsonValueAccessor})::${cast} ${operator}`, values);
+	});
 }
