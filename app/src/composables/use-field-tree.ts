@@ -81,6 +81,7 @@ export function useFieldTree(
 
 	function makeNode(field: Field, parent?: FieldNode): FieldNode | FieldNode[] {
 		const pathContext = parent?.path ? parent.path + '.' : '';
+		const keyContext = parent?.key ? parent.key + '.' : '';
 
 		if (field?.type === 'json') {
 			if (field.meta?.options?.fields) {
@@ -96,7 +97,7 @@ export function useFieldTree(
 
 				node.children = field.meta.options.fields.map((field) => ({
 					...makeNode(field, node),
-          name: '',
+					ame: '',
 					path: node.path + '.' + field.field,
 					key: node.key + '.' + field.field,
 				}));
@@ -148,7 +149,6 @@ export function useFieldTree(
 		}
 
 		const { relationType, relatedCollections } = getRelationTypeAndRelatedCollections(field);
-		const keyContext = parent?.key ? parent.key + '.' : '';
 
 		if (relatedCollections.length <= 1 && relationType !== 'm2a') {
 			return {
