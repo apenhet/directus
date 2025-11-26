@@ -777,7 +777,7 @@ Your export of ${collection} is ready. <a href="${href}">Click here to view.</a>
 			}
 
 			// Add BOM to the beginning of the file to ensure that Excel opens it correctly
-			return '\uFEFF' + string;
+			return string;
 		}
 
 		if (format === 'yaml') {
