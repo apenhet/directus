@@ -1,5 +1,6 @@
 import { InvalidQueryError } from '@directus/errors';
 import type { Filter, Permission, Relation, SchemaOverview } from '@directus/types';
+import { isObject } from '@directus/utils';
 import type { Knex } from 'knex';
 import { getCases } from '../../../../../permissions/modules/process-ast/lib/get-cases.js';
 import type { AliasMap } from '../../../../../utils/get-column-path.js';
@@ -14,6 +15,11 @@ import { getFilterType } from './get-filter-type.js';
 import { applyOperator } from './operator.js';
 import { validateOperator } from './validate-operator.js';
 import { generateAlias } from '../../../utils/generate-alias.js';
+import {
+	addJsonQuery,
+	handleCombinedJsonConditionsInAnd,
+	handleJsonFieldWithAndOr,
+} from './json-query.js';
 
 export function applyFilter(
 	knex: Knex,
@@ -103,10 +109,47 @@ export function applyFilter(
 					continue;
 				}
 
+				if (key === '_and') {
+					/** @NOTE this callback function isn't called until Knex runs the query */
+					dbQuery[logical].where((subQuery) => {
+						// Handle combined JSON conditions
+						const jsonConditions = handleCombinedJsonConditionsInAnd(
+							knex,
+							value as Record<string, any>[],
+							collection,
+							schema,
+							jsonQueries,
+							subQuery,
+						);
+
+						// Process remaining filters (non-combined JSON and regular filters)
+						for (const subFilter of value as Record<string, any>[]) {
+							const filterKeys = Object.keys(subFilter);
+
+							const shouldSkip = filterKeys.some((k) => {
+								const fieldInfo = schema.collections[collection]?.fields[k];
+
+								if (fieldInfo?.type === 'json') {
+									const basePathKey = `${k}.${getFilterPath(k, subFilter[k]).slice(1, -1).join('.')}`;
+									return jsonConditions.has(basePathKey) && jsonConditions.get(basePathKey)!.length > 1;
+								}
+
+								return false;
+							});
+
+							if (!shouldSkip) {
+								addWhereClauses(knex, subQuery, subFilter, collection, 'and', jsonQueries);
+							}
+						}
+					});
+
+					continue;
+				}
+
 				/** @NOTE this callback function isn't called until Knex runs the query */
 				dbQuery[logical].where((subQuery) => {
 					value.forEach((subFilter: Record<string, any>) => {
-						addWhereClauses(knex, subQuery, subFilter, collection, key === '_and' ? 'and' : 'or', jsonQueries);
+						addWhereClauses(knex, subQuery, subFilter, collection, 'or', jsonQueries);
 					});
 				});
 
@@ -122,12 +165,36 @@ export function applyFilter(
 
 			const { relation, relationType } = getRelationInfo(relations, collection, pathRoot);
 
+			const fieldInfo = schema.collections[collection]?.fields[key];
+
+			// Check for JSON fields with _and/_or before calling getOperation
+			if (fieldInfo?.type === 'json' && isObject(value) && ('_and' in value || '_or' in value)) {
+				const aliasKey = `${collection}.${key}`;
+
+				if (!jsonQueries.has(aliasKey)) {
+					const alias = generateAlias();
+					const query = knex.select('*').from(knex.raw(`json_array_elements(??.??) as ${alias}`, [collection, key]));
+
+					jsonQueries.set(aliasKey, {
+						alias,
+						query,
+					});
+
+					dbQuery.whereExists(query);
+				}
+
+				const { query, alias } = jsonQueries.get(aliasKey);
+
+				handleJsonFieldWithAndOr(query, key, value, alias, logical);
+
+				continue;
+			}
+
 			const operation = getOperation(key, value);
 
 			if (!operation) continue;
 
 			const { operator: filterOperator, value: filterValue } = operation;
-			const fieldInfo = schema.collections[collection]?.fields[key]
 
 			if (
 				filterPath.length > 1 ||
@@ -155,6 +222,25 @@ export function applyFilter(
 					if (nestedFilters.length === 0) continue;
 
 					for (const [nestedKey, nestedValue] of nestedFilters) {
+						if (nestedKey === '_and' || nestedKey === '_or') {
+							// Handle _and/_or inside JSON field filters
+							const nestedLogical = nestedKey === '_and' ? 'and' : 'or';
+
+							(nestedValue as Record<string, any>[]).forEach((subFilter: Record<string, any>) => {
+								for (const [subKey, subValue] of Object.entries(subFilter)) {
+									const subOperation = getOperation(subKey, subValue);
+
+									if (!subOperation) continue;
+
+									const subPath = [key, ...getFilterPath(subKey, subValue as Record<string, any>)];
+
+									addJsonQuery(query[nestedLogical], subPath, subOperation.operator, subOperation.value, alias);
+								}
+							});
+
+							continue;
+						}
+
 						const nestedOperation = getOperation(nestedKey, nestedValue);
 
 						if (!nestedOperation) continue;
@@ -260,104 +346,4 @@ export function applyFilter(
 			}
 		}
 	}
-}
-
-function buildJsonPath(filterPath: string[]) {
-	const keys = filterPath
-		.slice(1)
-		.map((segment) => segment.match(/^\[(.+)\]$/)?.[1] ?? segment)
-		.filter((segment) => segment.startsWith('_') === false);
-
-	const tokens: string[] = ['$'];
-
-	keys.forEach((key, index) => {
-		if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
-			tokens.push(`.${key}`);
-		} else {
-			const escaped = key.replace(/"/g, '\\"');
-			tokens.push(`."${escaped}"`);
-		}
-
-		if (index < keys.length - 1) {
-			tokens.push('[*]');
-		}
-	});
-
-	return tokens.join('');
-}
-
-function addJsonQuery(query: Knex.QueryBuilder, filterPath: string[], filterOperator: string, filterValue: any, alias: string) {
-	const cast = Number.isFinite(parseFloat(filterValue)) ? 'float' : 'text';
-
-	const jsonPath = buildJsonPath(filterPath);
-
-	const values: string[] = [];
-
-	switch (filterOperator) {
-		case '_contains':
-		case '_ncontains':
-		case '_icontains':
-		case '_nicontains':
-			values.push(`%${filterValue}%`);
-			break;
-		case '_starts_with':
-			values.push(`${filterValue}%`);
-			break;
-		case '_ends_with':
-			values.push(`%${filterValue}`);
-			break;
-		case '_in':
-		case '_nin':
-			values.push(...(Array.isArray(filterValue) ? filterValue : filterValue.split(',')));
-			break;
-		case '_gt':
-		case '_gte':
-		case '_lt':
-		case '_lte':
-			values.push(Number.isFinite(parseFloat(filterValue)) ? parseFloat(filterValue) : filterValue);
-			break;
-		case '_between':
-		case '_nbetween':
-			values.push(...[filterValue[0] ??= 0, filterValue[1] ?? filterValue[0]]);
-			break;
-		case '_empty':
-		case '_nempty':
-			break;
-		default:
-			values.push(filterValue);
-	}
-
-	const operator = {
-		'_eq': `= ?`,
-		'_neq': `!= ?`,
-		'_contains': `LIKE ?`,
-		'_ncontains': `NOT LIKE ?`,
-		'_icontains': `LIKE ?`,
-		'_nicontains': `NOT LIKE ?`,
-		'_starts_with': `LIKE ?`,
-		'_ends_with': `LIKE ?`,
-		'_gt': `> ?`,
-		'_gte': `>= ?`,
-		'_lt': `< ?`,
-		'_lte': `<= ?`,
-		'_in': `IN (${values.map(() => `?`).join(', ')})`,
-		'_nin': `NOT IN (${values.map(() => `?`).join(', ')})`,
-		'_empty': 'IS NULL',
-		'_nempty': 'IS NOT NULL',
-		'_between': `BETWEEN ? AND ?`,
-		'_nbetween': `NOT BETWEEN ? AND ?`,
-	}[filterOperator];
-
-	const jsonValueAccessor = `(json_value #>> '{}')`;
-
-	const applyJsonPathSubQuery = (subQuery: Knex.QueryBuilder) => {
-		subQuery
-			.select(query.client.raw('1'))
-			.fromRaw(query.client.raw(`jsonb_path_query((${alias})::jsonb, ?) as json_path_value(json_value)`, [jsonPath]));
-	};
-
-	query.whereExists((subQuery) => {
-		applyJsonPathSubQuery(subQuery);
-		subQuery.whereRaw(`(${jsonValueAccessor})::${cast} ${operator}`, values);
-	});
 }

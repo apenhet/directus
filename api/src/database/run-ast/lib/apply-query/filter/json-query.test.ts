@@ -186,3 +186,62 @@ test(`filtering json query with sibling arrays`, async () => {
 	]);
 });
 
+test(`filtering json query with combined conditions on same path using _and`, async () => {
+	const schema = new SchemaBuilder()
+		.collection('test', (c) => {
+			c.field('id').id();
+			c.field('name').string();
+			c.field('activities').json();
+		})
+		.build();
+
+	const db = vi.mocked(knex.default({ client: Client_SQLite3 }));
+	const queryBuilder = db.queryBuilder();
+
+	applyFilter(
+		db,
+		schema,
+		queryBuilder,
+		{
+			_and: [
+				{
+					activities: {
+						deliverables: {
+							type: {
+								_eq: 'type_1',
+							},
+						},
+					},
+				},
+				{
+					activities: {
+						deliverables: {
+							number: {
+								_gte: 2,
+							},
+						},
+					},
+				},
+			],
+		},
+		'test',
+		{},
+		[],
+		[],
+	);
+
+	const rawQuery = queryBuilder.toSQL();
+
+	expect(rawQuery.sql).toEqual(
+		`select * where (exists (select * from json_array_elements("test"."activities") as ${JSON_ALIAS} where exists (select 1 from jsonb_path_query((${JSON_ALIAS})::jsonb, ?) as json_path_value(json_value) where (jsonb_extract_path_text(json_value, ?)::text = ?) AND (jsonb_extract_path_text(json_value, ?)::float >= ?))))`,
+	);
+
+	expect(rawQuery.bindings).toEqual([
+		'$.deliverables[*]',
+		'type',
+		'type_1',
+		'number',
+		2,
+	]);
+});
+
