@@ -146,12 +146,58 @@ export function applyFilter(
 					continue;
 				}
 
-				/** @NOTE this callback function isn't called until Knex runs the query */
-				dbQuery[logical].where((subQuery) => {
-					value.forEach((subFilter: Record<string, any>) => {
-						addWhereClauses(knex, subQuery, subFilter, collection, 'or', jsonQueries);
+				// Handle root-level _or by creating a separate OR branch for each sub-filter.
+				// Each branch can itself contain an _and that combines JSON conditions.
+				if (key === '_or') {
+					(value as Record<string, any>[]).forEach((subFilter, index) => {
+						const method = index === 0 ? 'where' : 'orWhere';
+
+						dbQuery[logical][method]((subQuery) => {
+							// If this branch is a top-level _and, we want to combine JSON conditions
+							// inside that _and for this branch only.
+							if ('_and' in subFilter && Array.isArray(subFilter['_and'])) {
+								const andFilters = subFilter['_and'] as Record<string, any>[];
+								const localJsonQueries = new Map(jsonQueries);
+
+								const jsonConditions = handleCombinedJsonConditionsInAnd(
+									knex,
+									andFilters,
+									collection,
+									schema,
+									localJsonQueries,
+									subQuery,
+								);
+
+								for (const andFilter of andFilters) {
+									const filterKeys = Object.keys(andFilter);
+
+									const shouldSkip = filterKeys.some((k) => {
+										const fieldInfo = schema.collections[collection]?.fields[k];
+
+										if (fieldInfo?.type === 'json') {
+											const basePathKey = `${k}.${getFilterPath(k, andFilter[k]).slice(1, -1).join('.')}`;
+											return jsonConditions.has(basePathKey) && jsonConditions.get(basePathKey)!.length > 1;
+										}
+
+										return false;
+									});
+
+									if (!shouldSkip) {
+										addWhereClauses(knex, subQuery, andFilter, collection, 'and', localJsonQueries);
+									}
+								}
+							} else {
+								// Regular branch: use a branch-local jsonQueries map so aliases / subqueries
+								// don't leak across OR branches.
+								const branchJsonQueries = new Map(jsonQueries);
+
+								addWhereClauses(knex, subQuery, subFilter, collection, 'and', branchJsonQueries);
+							}
+						});
 					});
-				});
+
+					continue;
+				}
 
 				continue;
 			}

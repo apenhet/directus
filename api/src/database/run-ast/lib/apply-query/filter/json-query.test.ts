@@ -124,7 +124,7 @@ test(`filtering nested json query with logical operators`, async () => {
 	const rawQuery = queryBuilder.toSQL();
 
 	expect(rawQuery.sql).toEqual(
-		`select * where ("test"."name" = ? and (exists (select * from json_array_elements("test"."activities") as ${JSON_ALIAS} where exists (select 1 from jsonb_path_query((${JSON_ALIAS})::jsonb, ?) as json_path_value(json_value) where ((json_value #>> '{}'))::text = ?) or exists (select 1 from jsonb_path_query((${JSON_ALIAS})::jsonb, ?) as json_path_value(json_value) where ((json_value #>> '{}'))::text = ?))))`,
+		`select * where ("test"."name" = ? and (exists (select * from json_array_elements("test"."activities") as ${JSON_ALIAS} where exists (select 1 from jsonb_path_query((${JSON_ALIAS})::jsonb, ?) as json_path_value(json_value) where ((json_value #>> '{}'))::text = ?))) or (exists (select * from json_array_elements("test"."activities") as ${JSON_ALIAS} where exists (select 1 from jsonb_path_query((${JSON_ALIAS})::jsonb, ?) as json_path_value(json_value) where ((json_value #>> '{}'))::text = ?))))`,
 	);
 
 	expect(rawQuery.bindings).toEqual([
@@ -242,6 +242,92 @@ test(`filtering json query with combined conditions on same path using _and`, as
 		'type_1',
 		'number',
 		2,
+	]);
+});
+
+test(`filtering json query with _or combining multiple _and conditions`, async () => {
+	const schema = new SchemaBuilder()
+		.collection('test', (c) => {
+			c.field('id').id();
+			c.field('name').string();
+			c.field('activities').json();
+		})
+		.build();
+
+	const db = vi.mocked(knex.default({ client: Client_SQLite3 }));
+	const queryBuilder = db.queryBuilder();
+
+	applyFilter(
+		db,
+		schema,
+		queryBuilder,
+		{
+			_or: [
+				{
+					_and: [{
+						activities: {
+							beneficiaries: {
+								type: {
+									_eq: 'type_1',
+								},
+							},
+						}
+					},
+					{
+						activities: {
+							beneficiaries: {
+								number: {
+									_gte: 5,
+								},
+							},
+						}
+					}]
+				},
+				{
+					_and: [{
+						activities: {
+							beneficiaries: {
+								type: {
+									_eq: 'type_2',
+								},
+							},
+						}
+					},
+					{
+						activities: {
+							beneficiaries: {
+								number: {
+									_gte: 10,
+								},
+							},
+						}
+					}]
+				}
+			],
+		},
+		'test',
+		{},
+		[],
+		[],
+	);
+
+	const rawQuery = queryBuilder.toSQL();
+
+	expect(rawQuery.sql).toEqual(
+		`select * where (exists (select * from json_array_elements("test"."activities") as ${JSON_ALIAS} where exists (select 1 from jsonb_path_query((${JSON_ALIAS})::jsonb, ?) as json_path_value(json_value) where (jsonb_extract_path_text(json_value, ?)::text = ?) AND (jsonb_extract_path_text(json_value, ?)::float >= ?)))) or (exists (select * from json_array_elements("test"."activities") as ${JSON_ALIAS} where exists (select 1 from jsonb_path_query((${JSON_ALIAS})::jsonb, ?) as json_path_value(json_value) where (jsonb_extract_path_text(json_value, ?)::text = ?) AND (jsonb_extract_path_text(json_value, ?)::float >= ?))))`,
+	);
+
+	expect(rawQuery.bindings).toEqual([
+		'$.beneficiaries[*]',
+		'type',
+		'type_1',
+		'number',
+		5,
+		'$.beneficiaries[*]',
+		'type',
+		'type_2',
+		'number',
+		10,
 	]);
 });
 
