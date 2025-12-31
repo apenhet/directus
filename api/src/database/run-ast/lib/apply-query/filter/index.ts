@@ -130,7 +130,11 @@ export function applyFilter(
 								const fieldInfo = schema.collections[collection]?.fields[k];
 
 								if (fieldInfo?.type === 'json') {
-									const basePathKey = `${k}.${getFilterPath(k, subFilter[k]).slice(1, -1).join('.')}`;
+									const nestedPath = getFilterPath(k, subFilter[k]);
+									// Use same logic as handleCombinedJsonConditionsInAnd to build basePathKey
+									const fullPath = [k, ...nestedPath.slice(1)];
+									const basePath = fullPath.slice(0, -1);
+									const basePathKey = basePath.length === 1 ? basePath[0]! : `${k}.${basePath.slice(1).join('.')}`;
 									return jsonConditions.has(basePathKey) && jsonConditions.get(basePathKey)!.length > 1;
 								}
 
@@ -175,7 +179,11 @@ export function applyFilter(
 										const fieldInfo = schema.collections[collection]?.fields[k];
 
 										if (fieldInfo?.type === 'json') {
-											const basePathKey = `${k}.${getFilterPath(k, andFilter[k]).slice(1, -1).join('.')}`;
+											const nestedPath = getFilterPath(k, andFilter[k]);
+											// Use same logic as handleCombinedJsonConditionsInAnd to build basePathKey
+											const fullPath = [k, ...nestedPath.slice(1)];
+											const basePath = fullPath.slice(0, -1);
+											const basePathKey = basePath.length === 1 ? basePath[0]! : `${k}.${basePath.slice(1).join('.')}`;
 											return jsonConditions.has(basePathKey) && jsonConditions.get(basePathKey)!.length > 1;
 										}
 

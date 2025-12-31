@@ -246,13 +246,15 @@ export function handleCombinedJsonConditionsInAnd(
 			if (fieldInfo?.type === 'json' && isObject(subValue)) {
 				const nestedPath = getFilterPath(subKey, subValue);
 
-				if (nestedPath.length > 1) {
+				// Handle both single-level (nestedPath.length === 1) and multi-level (nestedPath.length > 1) nested fields
+				if (nestedPath.length >= 1) {
 					const operation = getOperation(nestedPath[1]!, Object.values(subValue)[0] as Record<string, any>);
 
 					if (operation) {
 						const fullPath = [subKey, ...nestedPath.slice(1)];
 						const basePath = fullPath.slice(0, -1);
-						const basePathKey = `${subKey}.${basePath.slice(1).join('.')}`;
+						// Build basePathKey properly - for single level, it's just the field name
+						const basePathKey = basePath.length === 1 ? basePath[0]! : `${subKey}.${basePath.slice(1).join('.')}`;
 						const field = fullPath[fullPath.length - 1]!;
 
 						if (!jsonConditions.has(basePathKey)) {
@@ -272,16 +274,19 @@ export function handleCombinedJsonConditionsInAnd(
 	}
 
 	// Handle combined JSON conditions
-		for (const [basePathKey, conditions] of jsonConditions) {
+	for (const [basePathKey, conditions] of jsonConditions) {
 		if (conditions.length > 1) {
 			// Multiple conditions on same base path - combine them
-			const [fieldName, ...basePathParts] = basePathKey.split('.');
+			const parts = basePathKey.includes('.') ? basePathKey.split('.') : [basePathKey];
+			const fieldName = parts[0]!;
+			const basePathParts = parts.slice(1).filter((p): p is string => p !== undefined);
 
 			if (!fieldName) continue;
 
-				const basePath = [fieldName, ...basePathParts.filter((p): p is string => p !== undefined)];
-				// We want to target individual items in the array at this base path
-				const jsonPath = `${buildJsonPath(basePath)}[*]`;
+			const basePath = [fieldName, ...basePathParts];
+			// For single-level nested fields, the jsonPath should be just "$"
+			// For multi-level nested fields, we want to target items at the base path with [*]
+			const jsonPath = basePathParts.length === 0 ? '$' : `${buildJsonPath(basePath)}[*]`;
 
 			const aliasKey = `${collection}.${fieldName}`;
 

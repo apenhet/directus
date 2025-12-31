@@ -477,7 +477,7 @@ test(`filtering _or`, async () => {
 
 	const rawQuery = queryBuilder.toSQL();
 
-	expect(rawQuery.sql).toEqual(`select * where ("article"."title" like ? or "article"."likes" >= ?)`);
+	expect(rawQuery.sql).toEqual(`select * where ("article"."title" like ?) or ("article"."likes" >= ?)`);
 	expect(rawQuery.bindings).toEqual(['%norge er kult%', 2000]);
 });
 
